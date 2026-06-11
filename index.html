@@ -205,6 +205,20 @@
             gap: 0.75rem;
         }
 
+        @media (min-width: 768px) {
+            .slots-list {
+                display: grid;
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (min-width: 1024px) {
+            .slots-list {
+                display: grid;
+                grid-template-columns: repeat(4, 1fr);
+            }
+        }
+
         .slot {
             display: flex;
             align-items: center;
@@ -662,6 +676,7 @@
                             <th>Name</th>
                             <th>Handynummer</th>
                             <th>Eintrags-Datum</th>
+                            <th style="text-align: center; width: 60px;">Aktion</th>
                         </tr>
                     </thead>
                     <tbody id="adminTableBody">
@@ -1010,6 +1025,14 @@
             }
         }
 
+        function showSuccessToast() {
+            showLoader(false);
+            thankYouToast.classList.add('active');
+            setTimeout(() => {
+                thankYouToast.classList.remove('active');
+            }, 4000);
+        }
+
         // --- ADMIN BEREICH (FIREBASE AUTH) & EXPORT LOGIK ---
         btnAdmin.addEventListener('click', () => {
             adminEmailInput.value = '';
@@ -1109,7 +1132,7 @@
             adminTableBody.innerHTML = '';
             
             if (adminLoadedData.length === 0) {
-                adminTableBody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: var(--text-muted); padding: 2rem;">Keine Einträge vorhanden.</td></tr>';
+                adminTableBody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-muted); padding: 2rem;">Keine Einträge vorhanden.</td></tr>';
                 return;
             }
 
@@ -1129,9 +1152,87 @@
                     <td>${row.vorname} ${row.nachname}</td>
                     <td><a href="tel:${row.handynummer}" style="color: var(--primary); text-decoration: none;">${row.handynummer}</a></td>
                     <td style="color: var(--text-muted); font-size: 0.85rem;">${formattedDate}</td>
+                    <td style="text-align: center; width: 60px;"></td>
                 `;
+
+                // Lösch-Button dynamisch erstellen (verhindert Probleme mit Anführungszeichen im Namen)
+                const deleteBtn = document.createElement('button');
+                deleteBtn.innerHTML = '🗑️';
+                deleteBtn.title = 'Eintrag löschen';
+                deleteBtn.style.background = 'none';
+                deleteBtn.style.border = 'none';
+                deleteBtn.style.cursor = 'pointer';
+                deleteBtn.style.color = 'var(--primary)';
+                deleteBtn.style.fontSize = '1.1rem';
+                deleteBtn.style.padding = '0.25rem';
+                deleteBtn.style.display = 'inline-flex';
+                deleteBtn.style.alignItems = 'center';
+                deleteBtn.style.justifyContent = 'center';
+                deleteBtn.style.transition = 'transform 0.2s';
+
+                deleteBtn.addEventListener('mouseenter', () => {
+                    deleteBtn.style.transform = 'scale(1.2)';
+                });
+                deleteBtn.addEventListener('mouseleave', () => {
+                    deleteBtn.style.transform = 'scale(1)';
+                });
+
+                deleteBtn.addEventListener('click', () => {
+                    handleDeleteEntry(row.id, `${row.vorname} ${row.nachname}`);
+                });
+
+                tr.querySelector('td:last-child').appendChild(deleteBtn);
                 adminTableBody.appendChild(tr);
             });
+        }
+
+        async function handleDeleteEntry(entryId, fullName) {
+            const confirmed = confirm(`Möchtest du den Eintrag von "${fullName}" wirklich unwiderruflich löschen?`);
+            if (!confirmed) return;
+
+            showLoader(true);
+
+            if (db) {
+                try {
+                    // 1. Aus der öffentlichen Liste löschen
+                    const deletePublic = db.collection('public_entries').doc(entryId).delete();
+                    
+                    // 2. Aus den privaten Details löschen
+                    const deletePrivate = db.collection('private_details').doc(entryId).delete();
+
+                    await Promise.all([deletePublic, deletePrivate]);
+
+                    // Daten lokal im Admin-Zustand löschen
+                    adminLoadedData = adminLoadedData.filter(item => item.id !== entryId);
+                    
+                    // Tabelle aktualisieren
+                    renderAdminTable();
+                    alert('Der Eintrag wurde erfolgreich aus der Datenbank gelöscht.');
+                } catch (error) {
+                    console.error("Fehler beim Löschen des Eintrags in Firebase:", error);
+                    alert("Es gab einen Fehler beim Löschen: " + error.message);
+                } finally {
+                    showLoader(false);
+                }
+            } else {
+                // LocalStorage Fallback (Demo-Modus)
+                try {
+                    loadLocalStorage();
+                    entries = entries.filter(item => item.id !== entryId);
+                    localStorage.setItem('huepfburg_entries', JSON.stringify(entries));
+                    
+                    // Auch im Admin-Zustand löschen
+                    adminLoadedData = adminLoadedData.filter(item => item.id !== entryId);
+
+                    renderAdminTable();
+                    renderSchichten();
+                    alert('Eintrag wurde lokal gelöscht.');
+                } catch (error) {
+                    console.error("Fehler beim lokalen Löschen:", error);
+                } finally {
+                    showLoader(false);
+                }
+            }
         }
 
         // CSV-Export für Excel
